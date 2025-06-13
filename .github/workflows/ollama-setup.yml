@@ -23,8 +23,6 @@ jobs:
 
       - name: Pull required models
         run: |
-          ollama pull mistral
-          ollama pull qwen
           ollama pull llama2
 
       - name: Verify Ollama installation

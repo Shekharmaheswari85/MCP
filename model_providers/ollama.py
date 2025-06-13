@@ -9,9 +9,8 @@ class OllamaModelProvider(BaseModelProvider):
     """Provider for Ollama models"""
     
     AVAILABLE_MODELS = {
-        "mistral": "General purpose model optimized for various tasks",
-        "qwen": "General purpose model optimized for general tasks",
-        "llama3.2": "General purpose model optimized for various tasks"
+        "llama3.2": "General purpose model optimized for various tasks",
+        "llama2": "General purpose model optimized for various tasks"
     }
     
     def __init__(self, model_name: str, base_url: str = "http://localhost:11434"):

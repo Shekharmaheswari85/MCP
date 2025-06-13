@@ -29,10 +29,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          sudo systemctl start ollama
+          sleep 10  # Wait for Ollama to start
+
+      - name: Pull Ollama Model
+        run: |
+          ollama pull llama2
+          ollama list
+
       - name: Create .env file
         run: |
           echo "ENVIRONMENT=development" >> .env
-          echo "OLLAMA_MODEL=llama3.2" >> .env
+          echo "OLLAMA_MODEL=llama2" >> .env
           echo "OLLAMA_BASE_URL=http://localhost:11434" >> .env
           echo "LOG_LEVEL=INFO" >> .env
           echo "LOG_FILE=logs/mcp_server.log" >> .env
@@ -66,4 +77,4 @@ jobs:
           # Test context endpoint
           curl -X POST http://localhost:8000/context \
             -H "Content-Type: application/json" \
-            -d '{"query": "Tell me about iPhone 15", "model": "mistral"}' 
+            -d '{"query": "Tell me about iPhone 15", "model": "llama2"}' 
