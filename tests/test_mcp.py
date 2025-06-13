@@ -23,7 +23,7 @@ def test_get_context():
         "/context",
         json={
             "query": "Tell me about iPhone 15",
-            "model": "mistral"
+            "model": "llama2"
         }
     )
     assert response.status_code == 200
