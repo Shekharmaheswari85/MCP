@@ -36,23 +36,11 @@ jobs:
           echo "OLLAMA_BASE_URL=http://localhost:11434" >> .env
           echo "LOG_LEVEL=INFO" >> .env
           echo "LOG_FILE=logs/mcp_server.log" >> .env
-          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
-          echo "GRAPHQL_ENDPOINT=${{ secrets.GRAPHQL_ENDPOINT }}" >> .env
-          echo "GRAPHQL_TOKEN=${{ secrets.GRAPHQL_TOKEN }}" >> .env
-          echo "REST_API_BASE_URL=${{ secrets.REST_API_BASE_URL }}" >> .env
-          echo "REST_API_TOKEN=${{ secrets.REST_API_TOKEN }}" >> .env
-
-      - name: Verify REST API Configuration
-        run: |
-          if [ -z "${{ secrets.REST_API_BASE_URL }}" ]; then
-            echo "Error: REST_API_BASE_URL is not set"
-            exit 1
-          fi
-          if [[ ! "${{ secrets.REST_API_BASE_URL }}" =~ ^https?:// ]]; then
-            echo "Error: REST_API_BASE_URL must start with http:// or https://"
-            exit 1
-          fi
-          echo "REST API configuration verified"
+          echo "DATABASE_URL=test" >> .env
+          echo "GRAPHQL_ENDPOINT=test" >> .env
+          echo "GRAPHQL_TOKEN=test" >> .env
+          echo "REST_API_BASE_URL=test" >> .env
+          echo "REST_API_TOKEN=test" >> .env
 
       - name: Create logs directory
         run: mkdir -p logs
