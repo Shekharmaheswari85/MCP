@@ -1,0 +1,81 @@
+name: Deploy MCP Server
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/deploy-mcp.yml'
+      - 'main.py'
+      - 'requirements.txt'
+      - 'context_providers/**'
+      - 'model_providers/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create .env file
+        run: |
+          echo "ENVIRONMENT=production" >> .env
+          echo "OLLAMA_MODEL=mistral" >> .env
+          echo "OLLAMA_BASE_URL=http://localhost:11434" >> .env
+          echo "LOG_LEVEL=INFO" >> .env
+          echo "LOG_FILE=logs/mcp_server.log" >> .env
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .env
+          echo "GRAPHQL_ENDPOINT=${{ secrets.GRAPHQL_ENDPOINT }}" >> .env
+          echo "GRAPHQL_TOKEN=${{ secrets.GRAPHQL_TOKEN }}" >> .env
+          echo "REST_API_BASE_URL=${{ secrets.REST_API_BASE_URL }}" >> .env
+          echo "REST_API_TOKEN=${{ secrets.REST_API_TOKEN }}" >> .env
+
+      - name: Verify REST API Configuration
+        run: |
+          if [ -z "${{ secrets.REST_API_BASE_URL }}" ]; then
+            echo "Error: REST_API_BASE_URL is not set"
+            exit 1
+          fi
+          if [[ ! "${{ secrets.REST_API_BASE_URL }}" =~ ^https?:// ]]; then
+            echo "Error: REST_API_BASE_URL must start with http:// or https://"
+            exit 1
+          fi
+          echo "REST API configuration verified"
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/
+
+      - name: Start MCP server
+        run: |
+          python main.py &
+          sleep 10  # Wait for server to start
+
+      - name: Verify server health
+        run: |
+          curl http://localhost:8000/health
+
+      - name: Test API endpoints
+        run: |
+          # Test models endpoint
+          curl http://localhost:8000/models
+          
+          # Test context endpoint
+          curl -X POST http://localhost:8000/context \
+            -H "Content-Type: application/json" \
+            -d '{"query": "Tell me about iPhone 15", "model": "mistral"}' 

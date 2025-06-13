@@ -52,22 +52,22 @@ class OllamaModelProvider(BaseModelProvider):
             logger.debug(f"Formatted prompt: {prompt}")
             
             # Make request to Ollama with increased timeout
-            response = await self.client.post(
-                "/api/generate",
-                json={
-                    "model": self.model_name,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "top_p": 0.9,
-                        "top_k": 40,
-                        "num_predict": 1024  # Limit response length
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=120) as client:
+                response = await client.post(
+                    "/api/generate",
+                    json={
+                        "model": self.model_name,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.7,
+                            "top_p": 0.9,
+                            "top_k": 40,
+                            "num_predict": 1024  # Limit response length
+                        }
                     }
-                },
-                timeout=120.0  # Explicit timeout for this request
-            )
-            response.raise_for_status()
+                )
+                response.raise_for_status()
             
             # Extract response
             result = response.json()

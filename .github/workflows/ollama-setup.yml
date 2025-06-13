@@ -1,0 +1,33 @@
+name: Setup Ollama
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/ollama-setup.yml'
+      - 'model_providers/ollama.py'
+
+jobs:
+  setup-ollama:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 10  # Wait for Ollama to start
+
+      - name: Pull required models
+        run: |
+          ollama pull mistral
+          ollama pull qwen
+          ollama pull llama2
+
+      - name: Verify Ollama installation
+        run: |
+          ollama list
+          curl http://localhost:11434/api/tags 

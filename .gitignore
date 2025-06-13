@@ -22,7 +22,7 @@ wheels/
 
 # Virtual Environment
 .env
-.venv
+.venv*
 env/
 venv/
 ENV/
