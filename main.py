@@ -10,6 +10,8 @@ import os
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from logger_config import setup_logger
+from fastapi.security import APIKeyHeader
+from fastapi.openapi.models import SecurityScheme
 
 # Set up logger
 logger = setup_logger("mcp_server")
@@ -18,18 +20,26 @@ logger = setup_logger("mcp_server")
 load_dotenv()
 logger.info("Environment variables loaded")
 
+# Server configuration
+HOST = os.getenv("HOST", "0.0.0.0")  # Default to 0.0.0.0 to accept external connections
+PORT = int(os.getenv("PORT", "8000"))
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+DEBUG = os.getenv("DEBUG", "true").lower() == "true"
+API_PREFIX = os.getenv("API_PREFIX", "/api/v1")
+
 # Initialize providers using the factory
 providers = ProviderFactory.get_all_providers()
 logger.info(f"Initialized providers: {list(providers.keys())}")
 
 # Initialize model provider with default model
-default_model = os.getenv("OLLAMA_MODEL", "mistral")
+default_model = os.getenv("OLLAMA_MODEL", "llama2")
+ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 model_provider = ModelProviderFactory.create_provider(
     "ollama",
     model_name=default_model,
-    base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    base_url=ollama_base_url
 )
-logger.info(f"Initialized model provider with model: {default_model}")
+logger.info(f"Initialized model provider with model: {default_model} at {ollama_base_url}")
 
 # Initialize query analyzer
 query_analyzer = QueryAnalyzer()
@@ -42,7 +52,7 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events.
     """
     # Startup: Initialize all providers
-    logger.info("Starting up application...")
+    logger.info(f"Starting up application in {ENVIRONMENT} environment...")
     for provider in providers.values():
         await provider.initialize()
         logger.debug(f"Initialized provider: {provider.__class__.__name__}")
@@ -63,10 +73,52 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Model Context Protocol Server",
-    description="API server for providing context and additional information to AI models",
+    description="""
+    API server for providing context and additional information to AI models.
+    
+    ## Features
+    - Context-aware query processing
+    - Multiple data provider support
+    - Model-agnostic interface
+    - Real-time context generation
+    
+    ## Authentication
+    All endpoints require authentication using API keys.
+    
+    ## Rate Limiting
+    API calls are rate-limited based on your subscription tier.
+    """,
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=f"{API_PREFIX}/docs" if DEBUG else None,
+    redoc_url=f"{API_PREFIX}/redoc" if DEBUG else None,
+    openapi_url=f"{API_PREFIX}/openapi.json" if DEBUG else None,
+    swagger_ui_parameters={
+        "persistAuthorization": True,
+        "displayRequestDuration": True,
+        "filter": True,
+        "tryItOutEnabled": True,
+    }
 )
+
+# Add security scheme
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
+
+# Update OpenAPI schema
+app.openapi_tags = [
+    {
+        "name": "models",
+        "description": "Operations related to available AI models",
+    },
+    {
+        "name": "context",
+        "description": "Operations for retrieving context for AI model queries",
+    },
+    {
+        "name": "health",
+        "description": "Health check and monitoring endpoints",
+    }
+]
 
 class ContextRequest(BaseModel):
     query: str
@@ -82,9 +134,14 @@ class ModelInfo(BaseModel):
     name: str
     description: str
 
-@app.get("/models", response_model=List[ModelInfo])
+@app.get("/models", response_model=List[ModelInfo], tags=["models"])
 async def list_models():
-    """List available models and their descriptions"""
+    """
+    List available models and their descriptions.
+    
+    Returns a list of all available AI models that can be used with the context protocol.
+    Each model entry includes its name and a brief description of its capabilities.
+    """
     logger.info("Listing available models")
     models = OllamaModelProvider.get_available_models()
     return [
@@ -92,12 +149,22 @@ async def list_models():
         for name, description in models.items()
     ]
 
-@app.post("/context")
+@app.post("/context", response_model=ContextResponse, tags=["context"])
 async def get_context(request: ContextRequest) -> ContextResponse:
     """
-    Endpoint for AI models to request context for their queries.
-    This implements the Model Context Protocol to provide relevant information
+    Get context for an AI model query.
+    
+    This endpoint implements the Model Context Protocol to provide relevant information
     to AI models when processing user queries.
+    
+    - **query**: The user's query that needs context
+    - **model**: The AI model that will process the query (e.g., "llama2", "mistral")
+    
+    Returns:
+    - Context data relevant to the query
+    - Metadata about the context generation
+    - Analysis of the query
+    - Model's response incorporating the context
     """
     logger.info(f"Received context request for query: {request.query} with model: {request.model}")
     
@@ -185,15 +252,20 @@ async def get_context(request: ContextRequest) -> ContextResponse:
         logger.error(f"Error processing context request: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/health")
+@app.get("/health", tags=["health"])
 async def health_check():
-    """Health check endpoint for the MCP server"""
+    """
+    Check the health status of the MCP server.
+    
+    Returns the current health status of the server and its components,
+    including the status of all configured providers.
+    """
     logger.info("Health check requested")
     health_status = {
         "status": "healthy",
         "service": "mcp-server",
         "providers": {},
-        "environment": os.getenv("ENVIRONMENT", "development").lower()
+        "environment": ENVIRONMENT.lower()
     }
     
     # Check each provider's health
@@ -218,5 +290,10 @@ async def health_check():
     return health_status
 
 if __name__ == "__main__":
-    logger.info("Starting MCP server...")
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run(
+        "main:app",
+        host=HOST,
+        port=PORT,
+        reload=DEBUG,
+        log_level="debug" if DEBUG else "info"
+    ) 

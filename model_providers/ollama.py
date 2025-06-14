@@ -9,22 +9,18 @@ class OllamaModelProvider(BaseModelProvider):
     """Provider for Ollama models"""
     
     AVAILABLE_MODELS = {
-        "llama3.2": "General purpose model optimized for various tasks",
         "llama2": "General purpose model optimized for various tasks"
     }
     
     def __init__(self, model_name: str, base_url: str = "http://localhost:11434"):
-        # Handle model name variations
-        if model_name.endswith(":latest"):
-            model_name = model_name[:-7]  # Remove ":latest" suffix
         
         if model_name not in self.AVAILABLE_MODELS:
             raise ValueError(f"Model {model_name} not available. Available models: {list(self.AVAILABLE_MODELS.keys())}")
         
         self.model_name = model_name
         self.base_url = base_url
-        # Increase timeout to 120 seconds
-        self.client = httpx.AsyncClient(base_url=base_url, timeout=120.0)
+        # Increase timeout to 300 seconds (5 minutes)
+        self.client = httpx.AsyncClient(base_url=base_url, timeout=300.0)
         logger.info(f"Initialized Ollama provider with model: {model_name} at {base_url}")
     
     @classmethod
@@ -39,6 +35,9 @@ class OllamaModelProvider(BaseModelProvider):
             response.raise_for_status()
             logger.info("Successfully connected to Ollama server")
             return True
+        except httpx.ConnectError:
+            logger.error("Failed to connect to Ollama server. Make sure Ollama is running at %s", self.base_url)
+            return False
         except Exception as e:
             logger.error(f"Failed to connect to Ollama server: {str(e)}", exc_info=True)
             return False
@@ -51,7 +50,7 @@ class OllamaModelProvider(BaseModelProvider):
             logger.debug(f"Formatted prompt: {prompt}")
             
             # Make request to Ollama with increased timeout
-            async with httpx.AsyncClient(base_url=self.base_url, timeout=120) as client:
+            async with httpx.AsyncClient(base_url=self.base_url, timeout=300) as client:
                 response = await client.post(
                     "/api/generate",
                     json={
@@ -77,9 +76,12 @@ class OllamaModelProvider(BaseModelProvider):
                 raise ValueError("Unexpected response format from Ollama")
             
             return result["response"]
+        except httpx.ConnectError:
+            logger.error("Failed to connect to Ollama server. Make sure Ollama is running at %s", self.base_url)
+            raise ValueError("Could not connect to Ollama server. Please ensure it's running.")
         except httpx.TimeoutException as e:
             logger.error(f"Timeout while generating response: {str(e)}", exc_info=True)
-            raise ValueError("Model response generation timed out. Please try again.")
+            raise ValueError("Model response generation timed out. Please try again with a shorter query or context.")
         except Exception as e:
             logger.error(f"Error generating response: {str(e)}", exc_info=True)
             raise

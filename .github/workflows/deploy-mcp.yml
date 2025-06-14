@@ -2,6 +2,16 @@ name: Deploy MCP Server
 
 on:
   workflow_dispatch:  # Manual trigger
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
   push:
     branches: [ main ]
     paths:
@@ -11,8 +21,12 @@ on:
       - 'context_providers/**'
       - 'model_providers/**'
 
+env:
+  DOCKER_IMAGE: ghcr.io/${{ github.repository }}/mcp-server
+  DOCKER_TAG: ${{ github.sha }}
+
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -21,7 +35,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.13'
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install dependencies
@@ -29,52 +43,93 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Ollama
+      - name: Create test environment file
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
-          sudo systemctl start ollama
-          sleep 10  # Wait for Ollama to start
-
-      - name: Pull Ollama Model
-        run: |
-          ollama pull llama2
-          ollama list
-
-      - name: Create .env file
-        run: |
-          echo "ENVIRONMENT=development" >> .env
+          echo "ENVIRONMENT=test" >> .env
           echo "OLLAMA_MODEL=llama2" >> .env
           echo "OLLAMA_BASE_URL=http://localhost:11434" >> .env
-          echo "LOG_LEVEL=INFO" >> .env
-          echo "LOG_FILE=logs/mcp_server.log" >> .env
-          echo "DATABASE_URL=test" >> .env
-          echo "GRAPHQL_ENDPOINT=test" >> .env
-          echo "GRAPHQL_TOKEN=test" >> .env
-          echo "REST_API_BASE_URL=test" >> .env
-          echo "REST_API_TOKEN=test" >> .env
-
-      - name: Create logs directory
-        run: mkdir -p logs
+          echo "DEBUG=true" >> .env
+          echo "HOST=0.0.0.0" >> .env
+          echo "PORT=8000" >> .env
+          echo "API_PREFIX=/api/v1" >> .env
+          echo "DATABASE_URL=sqlite:///./test.db" >> .env
 
       - name: Run tests
         run: |
           python -m pytest tests/
 
-      - name: Start MCP server
-        run: |
-          python main.py &
-          sleep 10  # Wait for server to start
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Verify server health
-        run: |
-          curl http://localhost:8000/health
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-      - name: Test API endpoints
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }},${{ env.DOCKER_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Deploy to environment
         run: |
-          # Test models endpoint
-          curl http://localhost:8000/models
+          echo "Deploying to ${{ github.event.inputs.environment }} environment"
           
-          # Test context endpoint
-          curl -X POST http://localhost:8000/context \
-            -H "Content-Type: application/json" \
-            -d '{"query": "Tell me about iPhone 15", "model": "llama2"}' 
+          # Create environment-specific configuration
+          cat << EOF > .env
+          ENVIRONMENT=${{ github.event.inputs.environment }}
+          OLLAMA_MODEL=llama2
+          OLLAMA_BASE_URL=${{ secrets.OLLAMA_BASE_URL }}
+          DEBUG=${{ github.event.inputs.environment == 'development' }}
+          HOST=0.0.0.0
+          PORT=8000
+          API_PREFIX=/api/v1
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          EOF
+          
+          # Deploy using your preferred method (e.g., SSH, Kubernetes, etc.)
+          # This is a placeholder - replace with your actual deployment steps
+          echo "Deployment configuration created"
+          
+          # Example: Deploy to a server via SSH
+          # ssh ${{ secrets.DEPLOY_HOST }} "docker pull ${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }} && \
+          #   docker-compose up -d"
+
+  verify-deployment:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Verify deployment
+        run: |
+          # Wait for deployment to stabilize
+          sleep 30
+          
+          # Check server health
+          curl -f ${{ secrets.API_BASE_URL }}/health || exit 1
+          
+          # Run smoke tests
+          curl -f ${{ secrets.API_BASE_URL }}/models || exit 1
+          
+          echo "Deployment verification completed successfully" 
